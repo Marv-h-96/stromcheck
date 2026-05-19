@@ -1,5 +1,6 @@
 streamlit
 plotly
 pandas
+numpy
 requests
-prophet
+pytz
