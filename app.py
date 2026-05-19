@@ -267,7 +267,11 @@ with st.expander("📊 Details & Hintergrund", expanded=False):
                             margin=dict(t=10,b=10,l=0,r=0))
         st.plotly_chart(fig_d, use_container_width=True)
         letzter_zeit = df.dropna(subset=["Erneuerbare_Anteil_%"]).index[-1]
-        st.caption(f"Snapshot: {letzter_zeit.strftime('%d.%m.%Y %H:%M')} Uhr · MW Einspeisung")
+        erster_zeit = df.dropna(subset=["Erneuerbare_Anteil_%"]).index[0]
+        st.caption(
+            f"Snapshot: {letzter_zeit.strftime('%d.%m.%Y %H:%M')} Uhr · MW Einspeisung · "
+            f"Zeitraum: {erster_zeit.strftime('%d.%m.%Y')} – {letzter_zeit.strftime('%d.%m.%Y')} ({zeitraum_label})"
+        )
 
     st.markdown("---")
 
