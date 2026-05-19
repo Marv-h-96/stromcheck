@@ -89,6 +89,8 @@ with col_links:
     st.subheader(f"📈 Erneuerbaren-Anteil – {zeitraum_label}")
     df_reset = df.reset_index()
 
+    y_max = max(110, df_reset["Erneuerbare_Anteil_%"].max() * 1.05)
+
     fig1 = go.Figure()
     # Rote Zone (0–40%)
     fig1.add_trace(go.Scatter(
@@ -108,6 +110,16 @@ with col_links:
         fill="tonexty", fillcolor="rgba(46,204,113,0.15)",
         line=dict(width=0), showlegend=False, hoverinfo="skip"
     ))
+    # Export-Zone (>100%): Deutschland exportiert mehr als es verbraucht
+    fig1.add_trace(go.Scatter(
+        x=df_reset["zeit"], y=[y_max] * len(df_reset),
+        fill="tonexty", fillcolor="rgba(52,152,219,0.15)",
+        line=dict(width=0), showlegend=False, hoverinfo="skip"
+    ))
+    fig1.add_hline(
+        y=100, line_dash="dot", line_color="#3498db",
+        annotation_text="100% – Netto-Export", annotation_position="top left"
+    )
     # Linie
     fig1.add_trace(go.Scatter(
         x=df_reset["zeit"], y=df_reset["Erneuerbare_Anteil_%"],
@@ -115,7 +127,7 @@ with col_links:
         hovertemplate="%{y:.1f}%<extra></extra>"
     ))
     fig1.update_layout(
-        yaxis=dict(title="Anteil (%)", range=[0, 105]),
+        yaxis=dict(title="Anteil (%)", range=[0, y_max]),
         xaxis_title="",
         margin=dict(t=10, b=10)
     )
