@@ -2,8 +2,8 @@ name: Strommix-Cache aktualisieren
 
 on:
   schedule:
-    # Alle 2 Stunden (SMARD aktualisiert stündlich)
-    - cron: '15 */2 * * *'
+    # Jede Stunde (SMARD aktualisiert stündlich)
+    - cron: '15 * * * *'
   workflow_dispatch:  # Manuell auslösbar im GitHub UI
 
 jobs:

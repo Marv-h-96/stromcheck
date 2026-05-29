@@ -107,30 +107,31 @@ def _ki_tageskommentar(
         api_key = st.secrets["GEMINI_API_KEY"]
         client = genai.Client(api_key=api_key)
 
-        wetter_ctx = ""
-        if wind_kmh is not None and strahlung_wm2 is not None:
-            wetter_ctx = (
-                f"Wetter in {standort}: Wind {wind_kmh:.0f} km/h, "
-                f"Globalstrahlung {strahlung_wm2:.0f} W/m². "
-            )
+        wetter_ctx = (
+            f"Aktuelles Wetter in {standort}: Wind {wind_kmh:.0f} km/h, "
+            f"Globalstrahlung {strahlung_wm2:.0f} W/m². "
+        ) if wind_kmh is not None and strahlung_wm2 is not None else (
+            f"Standort des Nutzers: {standort}. "
+        )
 
-        solar_ctx = ""
-        if solar_kwp is not None and solar_ausrichtung is not None:
-            solar_ctx = (
-                f"Der Nutzer hat eine Solaranlage mit {solar_kwp} kWp ({solar_ausrichtung} ausgerichtet) "
-                f"in {standort}. Beziehe die aktuelle Strahlungssituation konkret darauf ein. "
-            )
+        solar_ctx = (
+            f"Der Nutzer betreibt in {standort} eine Solaranlage mit {solar_kwp} kWp "
+            f"({solar_ausrichtung} ausgerichtet). Beziehe die aktuelle Strahlungssituation "
+            f"konkret auf seinen Ertrag ein. "
+        ) if solar_kwp is not None and solar_ausrichtung is not None else ""
 
         prompt = (
             f"Du bist ein freundlicher Energie-Assistent für eine deutsche Strommix-App. "
+            f"Der Nutzer ist in {standort}. "
             f"Aktuelle Lage in Deutschland: {aktuell:.0f}% Erneuerbare, {co2:.0f} g CO₂/kWh. "
             f"Stärkste Einspeisungsquellen: {top_str}. "
             f"{wetter_ctx}"
             f"{solar_ctx}"
             f"Bestes Zeitfenster für stromintensive Geräte – heute: {fenster_h}, morgen: {fenster_m}. "
-            f"Schreibe 2–3 natürliche Sätze auf Deutsch. Was prägt den heutigen Strommix? "
-            f"Ist es ein guter Tag für Grünstrom? Gib einen konkreten, persönlichen Alltagstipp. "
-            f"Kein Markdown, kein Fettdruck, locker und direkt formuliert."
+            f"Schreibe 2–3 Sätze auf Deutsch direkt an den Nutzer in {standort}. "
+            f"Beziehe das lokale Wetter und den Standort konkret ein. "
+            f"Gib einen alltagsnahen Tipp (Waschmaschine, E-Auto, etc.). "
+            f"Kein Markdown, kein Fettdruck, locker und direkt."
         )
         response = client.models.generate_content(model="gemini-2.5-flash", contents=prompt)
         return response.text.strip()
@@ -275,6 +276,9 @@ morgen_str = (now + timedelta(days=1)).date().isoformat()
 fenster_heute  = bestes_fenster(df_fc[df_fc["datum"] == heute_str])
 fenster_morgen = bestes_fenster(df_fc[df_fc["datum"] == morgen_str])
 
+# Wenn der aktuelle Anteil >= bestem prognostizierten Fenster: jetzt ist optimal
+jetzt_ist_optimal = fenster_heute is not None and aktuell >= fenster_heute[2]
+
 heute  = now.date()
 morgen = (now + timedelta(days=1)).date()
 
@@ -294,9 +298,25 @@ with h1:
         <div style="font-size:.85rem;color:#ccc">{status} · {aktuell_co2:.0f} g CO₂/kWh</div>
     </div>""", unsafe_allow_html=True)
 
-for col, fenster, label in [(h2, fenster_heute, "Heute"), (h3, fenster_morgen, "Morgen")]:
+for col, fenster, label, zeige_jetzt in [
+    (h2, fenster_heute, "Heute", jetzt_ist_optimal),
+    (h3, fenster_morgen, "Morgen", False),
+]:
     with col:
-        if fenster:
+        if fenster and zeige_jetzt:
+            # Jetzt ist besser als jedes prognostizierte Fenster
+            wert = aktuell
+            if wert >= 70:   emo, bg = "🟢", "#1a4a1a"
+            elif wert >= 40: emo, bg = "🟡", "#4a3d00"
+            else:            emo, bg = "🔴", "#4a1a1a"
+            st.markdown(f"""
+            <div style="padding:1.5rem;border-radius:.75rem;background:{bg};height:140px;display:flex;flex-direction:column;justify-content:center">
+                <div style="font-size:.8rem;color:#bbb">Heute – bestes Zeitfenster</div>
+                <div style="font-size:1.9rem;font-weight:bold;margin:.2rem 0">Jetzt – {now.strftime('%H:%M')} Uhr</div>
+                <div style="font-size:1rem">{emo} {wert:.0f}% Erneuerbare</div>
+                <div style="font-size:.75rem;color:#999;margin-top:.3rem">Waschmaschine · Spülmaschine · E-Auto</div>
+            </div>""", unsafe_allow_html=True)
+        elif fenster:
             start, ende, wert = fenster
             if wert >= 70:   emo, bg = "🟢", "#1a4a1a"
             elif wert >= 40: emo, bg = "🟡", "#4a3d00"
@@ -305,7 +325,7 @@ for col, fenster, label in [(h2, fenster_heute, "Heute"), (h3, fenster_morgen, "
             <div style="padding:1.5rem;border-radius:.75rem;background:{bg};height:140px;display:flex;flex-direction:column;justify-content:center">
                 <div style="font-size:.8rem;color:#bbb">{label} – bestes Zeitfenster</div>
                 <div style="font-size:1.9rem;font-weight:bold;margin:.2rem 0">{start.strftime('%H:%M')} – {ende.strftime('%H:%M')} Uhr</div>
-                <div style="font-size:1rem">{emo} Ø {wert}% Erneuerbare</div>
+                <div style="font-size:1rem">{emo} Ø {wert:.0f}% Erneuerbare</div>
                 <div style="font-size:.75rem;color:#999;margin-top:.3rem">Waschmaschine · Spülmaschine · E-Auto</div>
             </div>""", unsafe_allow_html=True)
         else:
