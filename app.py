@@ -96,6 +96,48 @@ def _pattern_fallback(src, now):
     return pd.DataFrame(rows)
 
 
+@st.cache_data(ttl=3600, show_spinner=False)
+def _ki_tageskommentar(
+    aktuell: float, co2: float, top_str: str, fenster_h: str, fenster_m: str,
+    standort: str, wind_kmh: float | None, strahlung_wm2: float | None,
+    solar_kwp: float | None, solar_ausrichtung: str | None,
+) -> str | None:
+    try:
+        import google.generativeai as genai
+        api_key = st.secrets["GEMINI_API_KEY"]
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel("gemini-1.5-flash")
+
+        wetter_ctx = ""
+        if wind_kmh is not None and strahlung_wm2 is not None:
+            wetter_ctx = (
+                f"Wetter in {standort}: Wind {wind_kmh:.0f} km/h, "
+                f"Globalstrahlung {strahlung_wm2:.0f} W/m². "
+            )
+
+        solar_ctx = ""
+        if solar_kwp is not None and solar_ausrichtung is not None:
+            solar_ctx = (
+                f"Der Nutzer hat eine Solaranlage mit {solar_kwp} kWp ({solar_ausrichtung} ausgerichtet) "
+                f"in {standort}. Beziehe die aktuelle Strahlungssituation konkret darauf ein. "
+            )
+
+        prompt = (
+            f"Du bist ein freundlicher Energie-Assistent für eine deutsche Strommix-App. "
+            f"Aktuelle Lage in Deutschland: {aktuell:.0f}% Erneuerbare, {co2:.0f} g CO₂/kWh. "
+            f"Stärkste Einspeisungsquellen: {top_str}. "
+            f"{wetter_ctx}"
+            f"{solar_ctx}"
+            f"Bestes Zeitfenster für stromintensive Geräte – heute: {fenster_h}, morgen: {fenster_m}. "
+            f"Schreibe 2–3 natürliche Sätze auf Deutsch. Was prägt den heutigen Strommix? "
+            f"Ist es ein guter Tag für Grünstrom? Gib einen konkreten, persönlichen Alltagstipp. "
+            f"Kein Markdown, kein Fettdruck, locker und direkt formuliert."
+        )
+        return model.generate_content(prompt).text.strip()
+    except Exception:
+        return None
+
+
 def bestes_fenster(df_tag):
     if df_tag is None or len(df_tag) < 2:
         return None
@@ -223,6 +265,7 @@ else:
     modell_info = f"Historisches Muster ({MODELL_TAGE} Tage)"
 
 df_fc["datum"] = df_fc["zeit"].dt.date.astype(str)
+hat_wetterdaten = "strahlung" in df_fc.columns
 
 heute_str  = now.date().isoformat()
 morgen_str = (now + timedelta(days=1)).date().isoformat()
@@ -269,6 +312,33 @@ for col, fenster, label in [(h2, fenster_heute, "Heute"), (h3, fenster_morgen, "
             </div>""", unsafe_allow_html=True)
 
 st.markdown("")
+
+# ── KI-Tageskommentar ─────────────────────────────────────────────────────────
+_top_str = ", ".join(
+    f"{l} ({w:.0f} MW)"
+    for l, w in sorted(zip(donut_labels, donut_werte), key=lambda x: x[1], reverse=True)[:3]
+)
+_fh = (f"{fenster_heute[0].strftime('%H:%M')}–{fenster_heute[1].strftime('%H:%M')} Uhr "
+       f"({fenster_heute[2]:.0f}% erneuerbar)") if fenster_heute else "keine Daten"
+_fm = (f"{fenster_morgen[0].strftime('%H:%M')}–{fenster_morgen[1].strftime('%H:%M')} Uhr "
+       f"({fenster_morgen[2]:.0f}% erneuerbar)") if fenster_morgen else "keine Daten"
+
+_wind    = float(df_fc["wind_100m"].iloc[0]) if hat_wetterdaten else None
+_strahl  = float(df_fc["strahlung"].iloc[0]) if hat_wetterdaten else None
+_sol_kwp = float(solar_kwp) if solar_aktiv else None
+_sol_aus = solar_ausrichtung if solar_aktiv else None
+
+_kommentar = _ki_tageskommentar(
+    aktuell, aktuell_co2, _top_str, _fh, _fm,
+    stadtname, _wind, _strahl, _sol_kwp, _sol_aus,
+)
+if _kommentar:
+    st.markdown(f"""
+    <div style="padding:.85rem 1.25rem;border-radius:.6rem;background:#0e1a2e;
+                border-left:3px solid #3498db;margin:.25rem 0 1rem 0;
+                font-size:.95rem;line-height:1.6;color:#d0d8e8">
+        🤖 {_kommentar}
+    </div>""", unsafe_allow_html=True)
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # ZONE 1.5 – AKTUELLER STROMMIX (DONUT)
@@ -361,8 +431,6 @@ st.caption(f"Prognose · {modell_info}")
 # ═══════════════════════════════════════════════════════════════════════════════
 # ZONE 3 – WETTERPROGNOSE
 # ═══════════════════════════════════════════════════════════════════════════════
-hat_wetterdaten = "strahlung" in df_fc.columns
-
 st.markdown("---")
 st.subheader(f"🌤 Wetterprognose – {stadtname}")
 
