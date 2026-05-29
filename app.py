@@ -133,7 +133,7 @@ def _ki_tageskommentar(
             f"Gib einen alltagsnahen Tipp (Waschmaschine, E-Auto, etc.). "
             f"Kein Markdown, kein Fettdruck, locker und direkt."
         )
-        response = client.models.generate_content(model="gemini-2.5-flash", contents=prompt)
+        response = client.models.generate_content(model="gemini-3.1-flash-lite", contents=prompt)
         return response.text.strip()
     except KeyError:
         return None  # Kein API-Key konfiguriert
