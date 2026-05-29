@@ -103,10 +103,9 @@ def _ki_tageskommentar(
     solar_kwp: float | None, solar_ausrichtung: str | None,
 ) -> str | None:
     try:
-        import google.generativeai as genai
+        from google import genai
         api_key = st.secrets["GEMINI_API_KEY"]
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel("gemini-1.5-flash")
+        client = genai.Client(api_key=api_key)
 
         wetter_ctx = ""
         if wind_kmh is not None and strahlung_wm2 is not None:
@@ -133,8 +132,12 @@ def _ki_tageskommentar(
             f"Ist es ein guter Tag für Grünstrom? Gib einen konkreten, persönlichen Alltagstipp. "
             f"Kein Markdown, kein Fettdruck, locker und direkt formuliert."
         )
-        return model.generate_content(prompt).text.strip()
-    except Exception:
+        response = client.models.generate_content(model="gemini-2.5-flash", contents=prompt)
+        return response.text.strip()
+    except KeyError:
+        return None  # Kein API-Key konfiguriert
+    except Exception as e:
+        st.toast(f"KI-Kommentar: {e}", icon="⚠️")
         return None
 
 
