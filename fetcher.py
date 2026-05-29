@@ -19,7 +19,7 @@ def load_from_cache(tage=7):
         df.index.name = "zeit"
         cutoff = pd.Timestamp.now(tz="Europe/Berlin") - pd.Timedelta(days=tage)
         df = df[df.index >= cutoff]
-        if len(df) < 24:
+        if len(df) < 2:
             return None
         return df
     except Exception:

@@ -161,14 +161,9 @@ with st.sidebar:
     solar_aktiv = st.toggle("Solaranlage vorhanden", value=False)
 
     if solar_aktiv:
-        solar_kwp        = st.slider("Anlagenleistung (kWp)", 1.0, 30.0, 8.0, 0.5)
+        solar_kwp         = st.slider("Anlagenleistung (kWp)", 1.0, 30.0, 8.0, 0.5)
         solar_ausrichtung = st.selectbox("Ausrichtung", ["Süd", "Süd-West", "Süd-Ost", "West", "Ost", "Nord"])
-        solar_neigung    = st.selectbox("Neigungswinkel", [15, 20, 25, 30, 35, 40], index=3)
-        speicher_aktiv   = st.toggle("Heimspeicher vorhanden", value=False)
-        if speicher_aktiv:
-            speicher_kwh = st.slider("Speicherkapazität (kWh)", 2.0, 20.0, 10.0, 0.5)
-    else:
-        speicher_aktiv = False
+        solar_neigung     = st.selectbox("Neigungswinkel", [15, 20, 25, 30, 35, 40], index=3)
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # DATEN LADEN
@@ -299,8 +294,30 @@ st.caption(
 st.markdown("")
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# ZONE 2 – 48h KALENDER
+# ZONE 2 – VERLAUF + 48h KALENDER
 # ═══════════════════════════════════════════════════════════════════════════════
+st.subheader(f"📈 Erneuerbarer-Anteil – {zeitraum_label}")
+df_reset = df.reset_index()
+y_max = max(110, df_reset["Erneuerbare_Anteil_%"].max() * 1.05)
+fig1 = go.Figure()
+fig1.add_trace(go.Scatter(x=df_reset["zeit"], y=[40]*len(df_reset),
+    fill="tozeroy", fillcolor="rgba(231,76,60,0.15)", line=dict(width=0), showlegend=False, hoverinfo="skip"))
+fig1.add_trace(go.Scatter(x=df_reset["zeit"], y=[70]*len(df_reset),
+    fill="tonexty", fillcolor="rgba(241,196,15,0.15)", line=dict(width=0), showlegend=False, hoverinfo="skip"))
+fig1.add_trace(go.Scatter(x=df_reset["zeit"], y=[100]*len(df_reset),
+    fill="tonexty", fillcolor="rgba(46,204,113,0.15)", line=dict(width=0), showlegend=False, hoverinfo="skip"))
+fig1.add_trace(go.Scatter(x=df_reset["zeit"], y=[y_max]*len(df_reset),
+    fill="tonexty", fillcolor="rgba(52,152,219,0.15)", line=dict(width=0), showlegend=False, hoverinfo="skip"))
+fig1.add_hline(y=100, line_dash="dot", line_color="#3498db",
+               annotation_text="100% – Netto-Export", annotation_position="top left")
+fig1.add_trace(go.Scatter(x=df_reset["zeit"], y=df_reset["Erneuerbare_Anteil_%"],
+    name="Erneuerbare %", line=dict(color="#2ecc71", width=2),
+    hovertemplate="%{y:.1f}%<extra></extra>"))
+fig1.update_layout(yaxis=dict(title="Anteil (%)", range=[0, y_max]),
+                   xaxis_title="", margin=dict(t=10, b=10), height=280)
+st.plotly_chart(fig1, use_container_width=True)
+st.caption("Erneuerbare / Gesamt-Last · Grün ≥70% · Gelb 40–70% · Rot <40% · Blau >100% = Netto-Export")
+
 st.subheader("📅 Nächste 48 Stunden – Prognose")
 
 hm_heute  = {h: None for h in range(24)}
@@ -426,7 +443,7 @@ if solar_aktiv:
         jetzt_ren   = df_fc["prognose"].iloc[0] if len(df_fc) > 0 else 50.0
 
         # Aktuelle Empfehlung
-        empf_text, empf_farbe = pv_empfehlung(naechste_kw, jetzt_ren, speicher_aktiv)
+        empf_text, empf_farbe = pv_empfehlung(naechste_kw, jetzt_ren, False)
         st.markdown(f"""
         <div style="padding:1rem 1.5rem;border-radius:.75rem;background:{empf_farbe}20;
                     border-left:4px solid {empf_farbe};margin-bottom:.75rem">
@@ -504,7 +521,7 @@ if solar_aktiv:
             for h in range(24):
                 ren = hm_dict.get(h) or 50.0
                 pv  = pv_dict.get(h, 0.0)
-                et, _ = pv_empfehlung(pv, ren, speicher_aktiv)
+                et, _ = pv_empfehlung(pv, ren, False)
                 row_z.append(COLOR_SCORE.get(et, 0.2))
                 row_t.append(TEXT_SHORT.get(et, ""))
             z_ampel.append(row_z)
@@ -535,69 +552,16 @@ if solar_aktiv:
         legende_html = " &nbsp;·&nbsp; ".join([
             '<span style="color:#27ae60">■</span> Eigenverbrauch',
             '<span style="color:#1abc9c">■</span> Einspeisung ok',
-            '<span style="color:#3498db">■</span> Speicher laden',
             '<span style="color:#d4ac0d">■</span> Gemischt',
             '<span style="color:#c0392b">■</span> Fossil',
         ])
         st.markdown(f'<div style="font-size:.8rem;color:#aaa">{legende_html}</div>', unsafe_allow_html=True)
-
-        # Speicher-Strategie
-        if speicher_aktiv:
-            st.markdown("---")
-            st.markdown("**🔋 Speicher-Strategie – nächste 48h**")
-            sp1, sp2 = st.columns(2)
-
-            # Ladefenster: Netz grün (>65%) UND wenig Solar
-            laden_stunden = df_pv[(df_pv["prognose"] > 65) & (df_pv["pv_kw"] < 0.3)].copy()
-            with sp1:
-                st.markdown("**Laden aus dem Netz empfohlen** *(grüner Strom, kein Solar)*")
-                if len(laden_stunden) > 0:
-                    for _, row in laden_stunden.head(6).iterrows():
-                        t = row["zeit"]
-                        st.markdown(f"- {t.strftime('%a %d.%m. %H:%M')} Uhr — {row['prognose']:.0f}% erneuerbar")
-                else:
-                    st.info("Keine günstigen Ladefenster aus dem Netz in den nächsten 48h.")
-
-            # Solar-Spitzen: PV > 50% Nennleistung
-            spitzen = df_pv[df_pv["pv_kw"] > solar_kwp * 0.5].copy()
-            with sp2:
-                st.markdown("**Solar-Spitzenzeiten** *(Eigenverbrauch / Speicher füllen)*")
-                if len(spitzen) > 0:
-                    for _, row in spitzen.head(6).iterrows():
-                        t = row["zeit"]
-                        st.markdown(f"- {t.strftime('%a %d.%m. %H:%M')} Uhr — {row['pv_kw']:.1f} kW Solar")
-                else:
-                    st.info("Keine starken Solar-Spitzenzeiten in den nächsten 48h prognostiziert.")
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # ZONE 5 – DETAILS
 # ═══════════════════════════════════════════════════════════════════════════════
 with st.expander("📊 Details & Hintergrund", expanded=False):
 
-    st.markdown("### Verlauf")
-    st.subheader(f"📈 Erneuerbarer-Anteil – {zeitraum_label}")
-    df_reset = df.reset_index()
-    y_max = max(110, df_reset["Erneuerbare_Anteil_%"].max() * 1.05)
-    fig1 = go.Figure()
-    fig1.add_trace(go.Scatter(x=df_reset["zeit"], y=[40]*len(df_reset),
-        fill="tozeroy", fillcolor="rgba(231,76,60,0.15)", line=dict(width=0), showlegend=False, hoverinfo="skip"))
-    fig1.add_trace(go.Scatter(x=df_reset["zeit"], y=[70]*len(df_reset),
-        fill="tonexty", fillcolor="rgba(241,196,15,0.15)", line=dict(width=0), showlegend=False, hoverinfo="skip"))
-    fig1.add_trace(go.Scatter(x=df_reset["zeit"], y=[100]*len(df_reset),
-        fill="tonexty", fillcolor="rgba(46,204,113,0.15)", line=dict(width=0), showlegend=False, hoverinfo="skip"))
-    fig1.add_trace(go.Scatter(x=df_reset["zeit"], y=[y_max]*len(df_reset),
-        fill="tonexty", fillcolor="rgba(52,152,219,0.15)", line=dict(width=0), showlegend=False, hoverinfo="skip"))
-    fig1.add_hline(y=100, line_dash="dot", line_color="#3498db",
-                   annotation_text="100% – Netto-Export", annotation_position="top left")
-    fig1.add_trace(go.Scatter(x=df_reset["zeit"], y=df_reset["Erneuerbare_Anteil_%"],
-        name="Erneuerbare %", line=dict(color="#2ecc71", width=2),
-        hovertemplate="%{y:.1f}%<extra></extra>"))
-    fig1.update_layout(yaxis=dict(title="Anteil (%)", range=[0, y_max]),
-                       xaxis_title="", margin=dict(t=10, b=10))
-    st.plotly_chart(fig1, use_container_width=True)
-    st.caption("Erneuerbare / Gesamt-Last · Grün ≥70% · Gelb 40–70% · Rot <40% · Blau >100% = Netto-Export")
-
-    st.markdown("---")
     st.markdown("### Strommix & Muster")
     sc1, sc2 = st.columns([2, 1])
 
