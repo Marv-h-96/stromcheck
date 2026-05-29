@@ -372,13 +372,14 @@ with h4:
     if _budget_heute_kt > 0:
         _pct = _co2_heute_kt / _budget_heute_kt * 100
         if _co2_breach_zeit is not None:
-            _h4_bg  = "#4a1a1a"
-            _h4_emo = "🔴"
-            _h4_status = f"Ziel seit {_co2_breach_zeit.strftime('%H:%M')} Uhr überschritten"
+            _h4_bg   = "#4a1a1a"
+            _faktor  = _co2_heute_kt / _budget_heute_kt
+            _h4_zeile1 = f"🔴 {_faktor:.1f}× über dem Ziel"
+            _h4_zeile2 = f"Limit seit {_co2_breach_zeit.strftime('%H:%M')} Uhr überschritten"
         else:
-            _h4_bg  = "#1a3a2a"
-            _h4_emo = "✅"
-            _h4_status = f"{_pct:.0f}% des Tagesbudgets genutzt"
+            _h4_bg   = "#1a3a2a"
+            _h4_zeile1 = f"✅ {_pct:.0f}% des Tagesbudgets"
+            _h4_zeile2 = "Klimaziel heute noch eingehalten"
         st.markdown(f"""
         <div style="padding:1.5rem;border-radius:.75rem;background:{_h4_bg};height:140px;
                     display:flex;flex-direction:column;justify-content:center">
@@ -389,9 +390,8 @@ with h4:
             <div style="font-size:.78rem;color:#ccc">
                 Tagesziel 2030: {_budget_heute_kt:.0f} kt
             </div>
-            <div style="font-size:.75rem;color:#aaa;margin-top:.25rem">
-                {_h4_emo} {_h4_status}
-            </div>
+            <div style="font-size:.8rem;font-weight:bold;margin-top:.2rem">{_h4_zeile1}</div>
+            <div style="font-size:.7rem;color:#aaa">{_h4_zeile2}</div>
         </div>""", unsafe_allow_html=True)
     else:
         st.markdown("""
@@ -726,10 +726,15 @@ if len(_df_tag) >= 2:
     )
     if _co2_breach_zeit is not None:
         fig_co2_tag.add_vline(
-            x=_co2_breach_zeit.isoformat(),
+            x=_co2_breach_zeit.strftime("%Y-%m-%dT%H:%M:%S"),
             line_dash="dot", line_color="#e74c3c", line_width=1.5,
-            annotation_text=f"Limit seit {_co2_breach_zeit.strftime('%H:%M')} Uhr",
-            annotation_position="top right",
+        )
+        fig_co2_tag.add_annotation(
+            x=_co2_breach_zeit.strftime("%Y-%m-%dT%H:%M:%S"),
+            y=1, yref="paper",
+            text=f"Limit seit {_co2_breach_zeit.strftime('%H:%M')} Uhr",
+            showarrow=False, yanchor="bottom",
+            font=dict(color="#e74c3c", size=11),
         )
     fig_co2_tag.update_layout(
         yaxis_title="Kumulierte CO₂-Emissionen heute (kt)",
