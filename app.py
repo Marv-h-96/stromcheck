@@ -356,6 +356,22 @@ jetzt_ist_optimal = fenster_heute is not None and aktuell >= fenster_heute[2]
 heute  = now.date()
 morgen = (now + timedelta(days=1)).date()
 
+# Stündliche Prognose-Dicts (werden in Solar-Ampel + 48h-Kalender gebraucht)
+hm_heute  = {h: None for h in range(24)}
+hm_morgen = {h: None for h in range(24)}
+for _, row in df_fc.iterrows():
+    t = row["zeit"]
+    if isinstance(t, str):
+        continue
+    if t.date() == heute:
+        hm_heute[t.hour] = row["prognose"]
+    elif t.date() == morgen:
+        hm_morgen[t.hour] = row["prognose"]
+y_labels = [
+    heute.strftime("%a, %d.%m.") + "  (heute)",
+    morgen.strftime("%a, %d.%m.") + "  (morgen)",
+]
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # ZONE 1 – HERO
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -751,23 +767,7 @@ st.caption("Erneuerbare / Gesamt-Last · Grün ≥70% · Gelb 40–70% · Rot <4
 
 st.subheader("📅 Nächste 48 Stunden – Prognose")
 
-hm_heute  = {h: None for h in range(24)}
-hm_morgen = {h: None for h in range(24)}
-
-for _, row in df_fc.iterrows():
-    t = row["zeit"]
-    if isinstance(t, str):
-        continue
-    if t.date() == heute:
-        hm_heute[t.hour] = row["prognose"]
-    elif t.date() == morgen:
-        hm_morgen[t.hour] = row["prognose"]
-
 z = [[hm_heute[h] for h in range(24)], [hm_morgen[h] for h in range(24)]]
-y_labels = [
-    heute.strftime("%a, %d.%m.") + "  (heute)",
-    morgen.strftime("%a, %d.%m.") + "  (morgen)",
-]
 text_kal = [[f"{v:.0f}%" if v is not None else "" for v in row_data] for row_data in z]
 
 fig_kal = go.Figure(go.Heatmap(
