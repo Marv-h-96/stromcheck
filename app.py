@@ -290,6 +290,23 @@ elif aktuell >= 40:
 else:
     farbe, status, hero_bg = "🔴", "Viel Fossil", "#4a1a1a"
 
+berlin = pytz.timezone("Europe/Berlin")
+now    = datetime.now(berlin)
+
+# ── CO2-Tageswerte (für Hero-Kachel + Tageszähler) ────────────────────────────
+_df_tag = df[df.index.date == now.date()].dropna(subset=["CO2_g_kWh", "Gesamt Last"]).copy()
+_co2_heute_kt   = 0.0
+_budget_heute_kt = 0.0
+_co2_breach_zeit = None
+if len(_df_tag) >= 1:
+    _df_tag["_co2_kt"]    = _df_tag["Gesamt Last"] * _df_tag["CO2_g_kWh"] / 1_000_000
+    _df_tag["_kumuliert"] = _df_tag["_co2_kt"].cumsum()
+    _co2_heute_kt    = _df_tag["_kumuliert"].iloc[-1]
+    _budget_heute_kt = _df_tag["Gesamt Last"].sum() * 100 / 1_000_000
+    _ueber           = _df_tag[_df_tag["_kumuliert"] > _budget_heute_kt]
+    if not _ueber.empty:
+        _co2_breach_zeit = _ueber.index[0]
+
 # Donut-Daten
 farb_map = {
     "Wind Onshore": "#27ae60", "Wind Offshore": "#2ecc71", "Solar": "#f1c40f",
@@ -305,8 +322,6 @@ for q in CO2_FAKTOREN:
         donut_farben.append(farb_map.get(q, "#bdc3c7"))
 
 # ── Forecast ──────────────────────────────────────────────────────────────────
-berlin = pytz.timezone("Europe/Berlin")
-now    = datetime.now(berlin)
 
 MODELL_TAGE = 28
 
@@ -353,28 +368,37 @@ with h1:
         <div style="font-size:.85rem;color:#ccc">{status} · {aktuell_co2:.0f} g CO₂/kWh</div>
     </div>""", unsafe_allow_html=True)
 
-_ziel_co2 = 100  # g/kWh Klimaziel 2030
-_faktor   = aktuell_co2 / _ziel_co2
-if aktuell_co2 <= 100:
-    _kz_bg, _kz_emo, _kz_label = "#1a4a1a", "✅", "Im Zielbereich"
-elif aktuell_co2 <= 250:
-    _kz_bg, _kz_emo, _kz_label = "#4a3d00", "⚠️", f"{_faktor:.1f}× über Ziel"
-else:
-    _kz_bg, _kz_emo, _kz_label = "#4a1a1a", "🔴", f"{_faktor:.1f}× über Ziel"
-
 with h4:
-    st.markdown(f"""
-    <div style="padding:1.5rem;border-radius:.75rem;background:{_kz_bg};height:140px;
-                display:flex;flex-direction:column;justify-content:center"
-         title="Das Klimaziel 2030 definiert einen angestrebten Jahresdurchschnitt von 100 g CO₂/kWh für das deutsche Stromnetz. Der angezeigte Wert ist die aktuelle stündliche Intensität – er schwankt je nach Wetterlage und Tageszeit.">
-        <div style="font-size:.78rem;color:#bbb">CO₂-Intensität · jetzt</div>
-        <div style="font-size:1.6rem;font-weight:bold;margin:.15rem 0">{aktuell_co2:.0f} g/kWh</div>
-        <div style="font-size:.8rem;color:#ccc">{_kz_emo} {_kz_label}</div>
-        <div style="font-size:.7rem;color:#999;margin-top:.25rem;line-height:1.3">
-            Ziel 2030: Ø {_ziel_co2} g/kWh<br>
-            <span style="font-size:.65rem">(Jahresdurchschnitt Stromnetz)</span>
-        </div>
-    </div>""", unsafe_allow_html=True)
+    if _budget_heute_kt > 0:
+        _pct = _co2_heute_kt / _budget_heute_kt * 100
+        if _co2_breach_zeit is not None:
+            _h4_bg  = "#4a1a1a"
+            _h4_emo = "🔴"
+            _h4_status = f"Ziel seit {_co2_breach_zeit.strftime('%H:%M')} Uhr überschritten"
+        else:
+            _h4_bg  = "#1a3a2a"
+            _h4_emo = "✅"
+            _h4_status = f"{_pct:.0f}% des Tagesbudgets genutzt"
+        st.markdown(f"""
+        <div style="padding:1.5rem;border-radius:.75rem;background:{_h4_bg};height:140px;
+                    display:flex;flex-direction:column;justify-content:center">
+            <div style="font-size:.78rem;color:#bbb">🌍 CO₂ heute</div>
+            <div style="font-size:1.5rem;font-weight:bold;margin:.15rem 0">
+                {_co2_heute_kt:.0f} kt
+            </div>
+            <div style="font-size:.78rem;color:#ccc">
+                Tagesziel 2030: {_budget_heute_kt:.0f} kt
+            </div>
+            <div style="font-size:.75rem;color:#aaa;margin-top:.25rem">
+                {_h4_emo} {_h4_status}
+            </div>
+        </div>""", unsafe_allow_html=True)
+    else:
+        st.markdown("""
+        <div style="padding:1.5rem;border-radius:.75rem;background:#2a2a2a;height:140px;
+                    display:flex;align-items:center;justify-content:center;color:#777">
+            Keine Tagesdaten
+        </div>""", unsafe_allow_html=True)
 
 for col, fenster, label, zeige_jetzt in [
     (h2, fenster_heute, "Heute", jetzt_ist_optimal),
@@ -649,79 +673,75 @@ st.caption(f"Prognose · {modell_info}")
 # ═══════════════════════════════════════════════════════════════════════════════
 st.markdown("---")
 st.subheader("🌍 CO₂-Tageszähler Deutschland")
+st.caption("Wie viel CO₂ hat der deutsche Stromsektor heute ausgestoßen – und wann wurde das Klimabudget überschritten?")
 
-df_heute_co2 = df[df.index.date == heute].copy()
+if len(_df_tag) >= 2:
+    _df_plot = _df_tag.reset_index()
+    _zeiten   = _df_plot["zeit"]
+    _kumuliert = _df_plot["_kumuliert"].values
 
-if len(df_heute_co2) >= 2 and "Gesamt Last" in df_heute_co2.columns:
-    df_heute_co2 = df_heute_co2.dropna(subset=["CO2_g_kWh", "Gesamt Last"])
-    # CO2 pro Stunde in kt: MW × g/kWh / 1_000_000
-    df_heute_co2["co2_kt"] = df_heute_co2["Gesamt Last"] * df_heute_co2["CO2_g_kWh"] / 1_000_000
-    df_heute_co2["co2_kt_kumuliert"] = df_heute_co2["co2_kt"].cumsum()
-    df_heute_co2 = df_heute_co2.reset_index()
+    _ueber_text = (
+        f"Tagesbudget um {_co2_breach_zeit.strftime('%H:%M')} Uhr überschritten"
+        if _co2_breach_zeit else "Tagesbudget heute noch eingehalten ✅"
+    )
+    _pct = _co2_heute_kt / _budget_heute_kt * 100 if _budget_heute_kt > 0 else 0
 
-    # Klimaziel 2030: Ø 100 g CO₂/kWh → Budget = heutige Last × 100 g/kWh
-    budget_kt = df_heute_co2["Gesamt Last"].sum() * 100 / 1_000_000
-    aktuell_kt = df_heute_co2["co2_kt_kumuliert"].iloc[-1]
-    prozent_vom_budget = aktuell_kt / budget_kt * 100 if budget_kt > 0 else 0
-
-    # Überschreitungszeitpunkt
-    ueber = df_heute_co2[df_heute_co2["co2_kt_kumuliert"] > budget_kt]
-    ueber_text = (f"Tageslimit um {pd.Timestamp(ueber.iloc[0]['zeit']).strftime('%H:%M')} Uhr überschritten"
-                  if not ueber.empty else "Tageslimit noch nicht überschritten ✅")
-
-    # Metriken
     cz1, cz2, cz3 = st.columns(3)
-    cz1.metric("CO₂ heute bisher", f"{aktuell_kt:.0f} kt",
-               help="Kumulierte CO₂-Emissionen des deutschen Stromsektors heute (Kilotonnen)")
-    cz2.metric("Klimaziel-Budget 2030", f"{budget_kt:.0f} kt",
-               help="Bei Ø 100 g CO₂/kWh (Ziel 2030) wäre dies das Tagesbudget bei heutiger Last")
-    cz3.metric("Ausgelastet", f"{prozent_vom_budget:.0f}%",
-               delta=f"{prozent_vom_budget - 100:.0f}%" if prozent_vom_budget > 100 else None,
-               delta_color="inverse")
+    cz1.metric(
+        "Tatsächliche Emissionen heute",
+        f"{_co2_heute_kt:.0f} kt CO₂",
+        help="Kumulierte CO₂-Emissionen des deutschen Stromsektors seit Mitternacht (Kilotonnen)",
+    )
+    cz2.metric(
+        "Erlaubtes Tagesbudget (Ziel 2030)",
+        f"{_budget_heute_kt:.0f} kt CO₂",
+        help="Bei Ø 100 g CO₂/kWh (Klimaziel 2030) wäre dies das maximale Tagesbudget bei heutiger Stromlast",
+    )
+    cz3.metric(
+        "Budget ausgeschöpft",
+        f"{_pct:.0f}%",
+        delta=f"+{_pct - 100:.0f}% über Ziel" if _pct > 100 else None,
+        delta_color="inverse",
+    )
+    st.caption(f"📍 {_ueber_text}")
 
-    st.caption(f"📍 {ueber_text}")
-
-    # Fülldiagramm
-    zeiten = df_heute_co2["zeit"]
-    kumuliert = df_heute_co2["co2_kt_kumuliert"].values
-
-    # Grüner Teil (innerhalb Budget) und roter Teil (über Budget)
-    gruen = np.minimum(kumuliert, budget_kt)
-    rot   = np.maximum(kumuliert - budget_kt, 0)
-
+    _gruen = np.minimum(_kumuliert, _budget_heute_kt)
     fig_co2_tag = go.Figure()
     fig_co2_tag.add_trace(go.Scatter(
-        x=zeiten, y=gruen, name="Innerhalb Klimaziel",
+        x=_zeiten, y=_gruen, name="Innerhalb Tagesbudget",
         fill="tozeroy", fillcolor="rgba(39,174,96,0.35)",
         line=dict(color="#27ae60", width=1.5),
         hovertemplate="%{x|%H:%M}: %{y:.1f} kt CO₂<extra></extra>",
     ))
     fig_co2_tag.add_trace(go.Scatter(
-        x=zeiten, y=kumuliert, name="Über Klimaziel",
+        x=_zeiten, y=_kumuliert, name="Über Tagesbudget",
         fill="tonexty", fillcolor="rgba(192,57,43,0.35)",
         line=dict(color="#c0392b", width=1.5),
         hovertemplate="%{x|%H:%M}: %{y:.1f} kt CO₂<extra></extra>",
     ))
     fig_co2_tag.add_hline(
-        y=budget_kt, line_dash="dash", line_color="#27ae60", line_width=2,
-        annotation_text=f"Klimaziel 2030 · {budget_kt:.0f} kt",
+        y=_budget_heute_kt, line_dash="dash", line_color="#27ae60", line_width=2,
+        annotation_text=f"Tagesbudget Klimaziel 2030 · {_budget_heute_kt:.0f} kt",
         annotation_position="top left",
     )
-    if not ueber.empty:
+    if _co2_breach_zeit is not None:
         fig_co2_tag.add_vline(
-            x=pd.Timestamp(ueber.iloc[0]["zeit"]).isoformat(),
+            x=_co2_breach_zeit.isoformat(),
             line_dash="dot", line_color="#e74c3c", line_width=1.5,
+            annotation_text=f"Limit seit {_co2_breach_zeit.strftime('%H:%M')} Uhr",
+            annotation_position="top right",
         )
     fig_co2_tag.update_layout(
-        yaxis_title="Kumulierte CO₂-Emissionen (kt)",
+        yaxis_title="Kumulierte CO₂-Emissionen heute (kt)",
         xaxis_title="",
         legend=dict(orientation="h", y=-0.18),
-        margin=dict(t=10, b=10), height=260,
+        margin=dict(t=10, b=10), height=280,
     )
     st.plotly_chart(fig_co2_tag, use_container_width=True)
     st.caption(
-        "Kumulierte CO₂-Emissionen des deutschen Stromsektors heute · "
-        "Klimaziel 2030: Ø 100 g CO₂/kWh · Quelle: SMARD + IPCC AR6"
+        "CO₂-Emissionen des deutschen Stromsektors · "
+        "Tagesbudget = heutige Stromlast × 100 g CO₂/kWh (Klimaziel 2030) · "
+        "Quelle: SMARD + IPCC AR6"
     )
 else:
     st.info("Für heute noch keine ausreichenden Daten vorhanden.")
