@@ -121,21 +121,28 @@ def _ki_tageskommentar(
             f"konkret auf seinen Ertrag ein. "
         ) if solar_kwp is not None and solar_ausrichtung is not None else ""
 
-        km_auto = round(co2 / 200, 1)
+        klimaziel_status = (
+            f"im Zielbereich – Glückwunsch!" if co2 <= 100
+            else f"{co2/100:.1f}× über dem Klimaziel 2030 (Ø 100 g/kWh Jahresdurchschnitt)"
+        )
         prompt = (
-            f"Du bist ein freundlicher Energie-Assistent für eine deutsche Strommix-App. "
+            f"Du bist ein freundlicher, leicht humorvoller Energie-Assistent für eine deutsche Strommix-App. "
             f"Der Nutzer ist in {standort}. "
-            f"Aktuelle Lage in Deutschland: {aktuell:.0f}% Erneuerbare, {co2:.0f} g CO₂/kWh "
-            f"(≈ {km_auto} km Autofahrt pro verbrauchter kWh). "
+            f"Aktuelle Lage in Deutschland: {aktuell:.0f}% Erneuerbare, {co2:.0f} g CO₂/kWh – "
+            f"das ist {klimaziel_status}. "
+            f"CO₂-Vergleiche zur Auswahl (nur einen einbauen, kreativ variieren): "
+            f"≈ {co2/200:.1f} km Autofahrt, "
+            f"≈ {co2/500:.1f} Flaschen Bier brauen (0,5 l), "
+            f"≈ {co2/80:.0f} Minuten Videostreaming, "
+            f"≈ {co2/2500*100:.1f}% eines Burgers. "
             f"Stärkste Einspeisungsquellen: {top_str}. "
             f"{wetter_ctx}"
             f"{solar_ctx}"
             f"Bestes Zeitfenster für stromintensive Geräte – heute: {fenster_h}, morgen: {fenster_m}. "
             f"Schreibe 2–3 Sätze auf Deutsch direkt an den Nutzer in {standort}. "
-            f"Beziehe das lokale Wetter und den Standort konkret ein. "
-            f"Nutze das CO₂-Äquivalent (km Autofahrt) um den Wert greifbar zu machen. "
-            f"Gib einen alltagsnahen Tipp (Waschmaschine, E-Auto, etc.). "
-            f"Kein Markdown, kein Fettdruck, locker und direkt."
+            f"Beziehe das lokale Wetter konkret ein. Baue einen CO₂-Vergleich mit Alltagshumor ein. "
+            f"Erwähne das Klimaziel kurz, gerne mit einem Augenzwinkern wenn es verfehlt wird. "
+            f"Gib einen alltagsnahen Tipp. Kein Markdown, kein Fettdruck."
         )
         response = client.models.generate_content(model="gemini-3.1-flash-lite", contents=prompt)
         return response.text.strip()
@@ -358,12 +365,15 @@ else:
 with h4:
     st.markdown(f"""
     <div style="padding:1.5rem;border-radius:.75rem;background:{_kz_bg};height:140px;
-                display:flex;flex-direction:column;justify-content:center">
-        <div style="font-size:.8rem;color:#bbb">🎯 Klimaziel 2030</div>
-        <div style="font-size:1.6rem;font-weight:bold;margin:.2rem 0">{aktuell_co2:.0f} g CO₂</div>
-        <div style="font-size:.85rem">pro kWh</div>
-        <div style="font-size:.8rem;color:#ccc;margin-top:.3rem">{_kz_emo} {_kz_label}</div>
-        <div style="font-size:.7rem;color:#999">Ziel: {_ziel_co2} g/kWh</div>
+                display:flex;flex-direction:column;justify-content:center"
+         title="Das Klimaziel 2030 definiert einen angestrebten Jahresdurchschnitt von 100 g CO₂/kWh für das deutsche Stromnetz. Der angezeigte Wert ist die aktuelle stündliche Intensität – er schwankt je nach Wetterlage und Tageszeit.">
+        <div style="font-size:.78rem;color:#bbb">CO₂-Intensität · jetzt</div>
+        <div style="font-size:1.6rem;font-weight:bold;margin:.15rem 0">{aktuell_co2:.0f} g/kWh</div>
+        <div style="font-size:.8rem;color:#ccc">{_kz_emo} {_kz_label}</div>
+        <div style="font-size:.7rem;color:#999;margin-top:.25rem;line-height:1.3">
+            Ziel 2030: Ø {_ziel_co2} g/kWh<br>
+            <span style="font-size:.65rem">(Jahresdurchschnitt Stromnetz)</span>
+        </div>
     </div>""", unsafe_allow_html=True)
 
 for col, fenster, label, zeige_jetzt in [
