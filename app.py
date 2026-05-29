@@ -470,6 +470,123 @@ if _kommentar:
     </div>""", unsafe_allow_html=True)
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# ZONE 1.4 – SOLARANLAGE (nur wenn aktiv)
+# ═══════════════════════════════════════════════════════════════════════════════
+if solar_aktiv:
+    st.markdown("---")
+    st.subheader("☀️ Solaranlage – Ertrag & Empfehlungen")
+
+    df_pv = berechne_pv(df_fc, solar_kwp, solar_ausrichtung, solar_neigung)
+
+    if df_pv is None:
+        st.warning(
+            "Für die PV-Ertragsprognose werden Strahlungsdaten von Open-Meteo benötigt. "
+            "Stelle sicher, dass der Standort korrekt ist und die Wetterprognose verfügbar ist."
+        )
+    else:
+        df_pv["datum"] = df_pv["zeit"].dt.date.astype(str)
+        heute_kwh   = df_pv[df_pv["datum"] == heute_str]["pv_kw"].sum()
+        morgen_kwh  = df_pv[df_pv["datum"] == morgen_str]["pv_kw"].sum()
+        naechste_kw = df_pv["pv_kw"].iloc[0] if len(df_pv) > 0 else 0.0
+        jetzt_ren   = df_fc["prognose"].iloc[0] if len(df_fc) > 0 else 50.0
+
+        empf_text, empf_farbe = pv_empfehlung(naechste_kw, jetzt_ren, False)
+        st.markdown(f"""
+        <div style="padding:1rem 1.5rem;border-radius:.75rem;background:{empf_farbe}20;
+                    border-left:4px solid {empf_farbe};margin-bottom:.75rem">
+            <span style="font-size:1.15rem;font-weight:bold;color:{empf_farbe}">{empf_text}</span>
+            <span style="font-size:.8rem;color:#aaa;margin-left:1rem">
+                nächste Stunde · {naechste_kw:.1f} kW Solar · {jetzt_ren:.0f}% Erneuerbare im Netz
+            </span>
+        </div>""", unsafe_allow_html=True)
+
+        sm1, sm2, sm3, sm4 = st.columns(4)
+        sm1.metric("☀️ Heute erwartet", f"{heute_kwh:.1f} kWh",
+            help=f"{solar_kwp} kWp · {solar_ausrichtung} · {solar_neigung}° · η=80%")
+        sm2.metric("📅 Morgen erwartet", f"{morgen_kwh:.1f} kWh")
+        sm3.metric("⚡ Nächste Stunde", f"{naechste_kw:.1f} kW")
+        sm4.metric("🌐 Netz gerade", f"{jetzt_ren:.0f}% erneuerbar")
+
+        st.markdown("**Ertragsprognose & Netzstrom (48h)**")
+        fig_pv = go.Figure()
+        fig_pv.add_trace(go.Scatter(
+            x=df_pv["zeit"], y=df_pv["pv_kw"],
+            name=f"PV-Ertrag ({solar_kwp} kWp)",
+            fill="tozeroy", fillcolor="rgba(241,196,15,0.30)",
+            line=dict(color="#f1c40f", width=2),
+            hovertemplate="%{x|%a %H:%M}: %{y:.2f} kW<extra></extra>",
+            yaxis="y1",
+        ))
+        fig_pv.add_trace(go.Scatter(
+            x=df_fc["zeit"], y=df_fc["prognose"],
+            name="Erneuerbare % (Netz)",
+            line=dict(color="#2ecc71", width=2, dash="dot"),
+            hovertemplate="%{x|%a %H:%M}: %{y:.0f}%<extra></extra>",
+            yaxis="y2",
+        ))
+        fig_pv.add_vline(x=now.isoformat(), line_dash="solid", line_color="white", line_width=1)
+        fig_pv.update_layout(
+            yaxis=dict(title="PV-Leistung (kW)", side="left", rangemode="nonnegative"),
+            yaxis2=dict(title="Erneuerbare % (Netz)", side="right", overlaying="y",
+                        range=[0, 120], showgrid=False),
+            xaxis_title="", legend=dict(orientation="h", y=-0.18),
+            margin=dict(t=10, b=10), height=300,
+        )
+        st.plotly_chart(fig_pv, use_container_width=True)
+        st.caption(
+            f"Strahlungsdaten: Open-Meteo · Standort: {stadtname} · "
+            f"Ausrichtung {solar_ausrichtung} · Neigung {solar_neigung}° · Systemwirkungsgrad 80%"
+        )
+
+        st.markdown("**Eigenverbrauchsampel – Stundengenaue Empfehlung**")
+        pv_heute_h  = {row["zeit"].hour: row["pv_kw"] for _, row in df_pv[df_pv["datum"] == heute_str].iterrows()}
+        pv_morgen_h = {row["zeit"].hour: row["pv_kw"] for _, row in df_pv[df_pv["datum"] == morgen_str].iterrows()}
+        COLOR_SCORE = {
+            "⚡ Eigenverbrauch maximieren": 0.85, "↗ Einspeisung — Netz ist grün": 0.65,
+            "🔋 Grüner Strom — Speicher laden": 0.40, "~ Gemischter Mix": 0.20,
+            "🚫 Fossiles Netz — Verbrauch reduzieren": 0.02,
+        }
+        TEXT_SHORT = {
+            "⚡ Eigenverbrauch maximieren": "Eigen-\nverbrauch", "↗ Einspeisung — Netz ist grün": "Einspeisung",
+            "🔋 Grüner Strom — Speicher laden": "Laden", "~ Gemischter Mix": "Gemischt",
+            "🚫 Fossiles Netz — Verbrauch reduzieren": "Fossil",
+        }
+        z_ampel, text_ampel = [], []
+        for hm_dict, pv_dict in [(hm_heute, pv_heute_h), (hm_morgen, pv_morgen_h)]:
+            row_z, row_t = [], []
+            for h in range(24):
+                ren = hm_dict.get(h) or 50.0
+                pv  = pv_dict.get(h, 0.0)
+                et, _ = pv_empfehlung(pv, ren, False)
+                row_z.append(COLOR_SCORE.get(et, 0.2))
+                row_t.append(TEXT_SHORT.get(et, ""))
+            z_ampel.append(row_z)
+            text_ampel.append(row_t)
+        fig_ampel = go.Figure(go.Heatmap(
+            z=z_ampel, x=[f"{h}:00" for h in range(24)], y=y_labels,
+            text=text_ampel, texttemplate="%{text}",
+            colorscale=[
+                [0.00, "#7b241c"], [0.15, "#c0392b"], [0.15, "#d4ac0d"], [0.35, "#d4ac0d"],
+                [0.35, "#3498db"], [0.55, "#3498db"], [0.55, "#1abc9c"], [0.75, "#1abc9c"],
+                [0.75, "#27ae60"], [1.00, "#27ae60"],
+            ],
+            zmin=0, zmax=1, showscale=False,
+            hovertemplate="%{y}<br>%{x}: %{text}<extra></extra>",
+        ))
+        fig_ampel.add_vline(x=f"{now.hour}:00", line_dash="dash", line_color="white", line_width=2)
+        fig_ampel.update_layout(height=180, margin=dict(t=10, b=10, l=0, r=0),
+                                xaxis=dict(side="top", tickfont=dict(size=10)),
+                                yaxis=dict(tickfont=dict(size=11)))
+        st.plotly_chart(fig_ampel, use_container_width=True)
+        legende_html = " &nbsp;·&nbsp; ".join([
+            '<span style="color:#27ae60">■</span> Eigenverbrauch',
+            '<span style="color:#1abc9c">■</span> Einspeisung ok',
+            '<span style="color:#d4ac0d">■</span> Gemischt',
+            '<span style="color:#c0392b">■</span> Fossil',
+        ])
+        st.markdown(f'<div style="font-size:.8rem;color:#aaa">{legende_html}</div>', unsafe_allow_html=True)
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # ZONE 1.5 – GERÄTEPLANER
 # ═══════════════════════════════════════════════════════════════════════════════
 st.markdown("---")
@@ -732,142 +849,6 @@ fig_fc.update_layout(
 )
 st.plotly_chart(fig_fc, use_container_width=True)
 st.caption(modell_info)
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# ZONE 4 – SOLARANLAGE
-# ═══════════════════════════════════════════════════════════════════════════════
-if solar_aktiv:
-    st.markdown("---")
-    st.subheader("☀️ Solaranlage – Ertrag & Empfehlungen")
-
-    df_pv = berechne_pv(df_fc, solar_kwp, solar_ausrichtung, solar_neigung)
-
-    if df_pv is None:
-        st.warning(
-            "Für die PV-Ertragsprognose werden Strahlungsdaten von Open-Meteo benötigt. "
-            "Stelle sicher, dass der Standort korrekt ist und die Wetterprognose verfügbar ist."
-        )
-    else:
-        df_pv["datum"] = df_pv["zeit"].dt.date.astype(str)
-        heute_kwh  = df_pv[df_pv["datum"] == heute_str]["pv_kw"].sum()
-        morgen_kwh = df_pv[df_pv["datum"] == morgen_str]["pv_kw"].sum()
-        naechste_kw = df_pv["pv_kw"].iloc[0] if len(df_pv) > 0 else 0.0
-        jetzt_ren   = df_fc["prognose"].iloc[0] if len(df_fc) > 0 else 50.0
-
-        # Aktuelle Empfehlung
-        empf_text, empf_farbe = pv_empfehlung(naechste_kw, jetzt_ren, False)
-        st.markdown(f"""
-        <div style="padding:1rem 1.5rem;border-radius:.75rem;background:{empf_farbe}20;
-                    border-left:4px solid {empf_farbe};margin-bottom:.75rem">
-            <span style="font-size:1.15rem;font-weight:bold;color:{empf_farbe}">{empf_text}</span>
-            <span style="font-size:.8rem;color:#aaa;margin-left:1rem">
-                nächste Stunde · {naechste_kw:.1f} kW Solar · {jetzt_ren:.0f}% Erneuerbare im Netz
-            </span>
-        </div>""", unsafe_allow_html=True)
-
-        # Metriken
-        sm1, sm2, sm3, sm4 = st.columns(4)
-        sm1.metric("☀️ Heute erwartet", f"{heute_kwh:.1f} kWh",
-            help=f"{solar_kwp} kWp · {solar_ausrichtung} · {solar_neigung}° · η=80%")
-        sm2.metric("📅 Morgen erwartet", f"{morgen_kwh:.1f} kWh")
-        sm3.metric("⚡ Nächste Stunde", f"{naechste_kw:.1f} kW")
-        sm4.metric("🌐 Netz gerade", f"{jetzt_ren:.0f}% erneuerbar")
-
-        # Kombinierter PV + Netz Chart
-        st.markdown("**Ertragsprognose & Netzstrom (48h)**")
-        fig_pv = go.Figure()
-        fig_pv.add_trace(go.Scatter(
-            x=df_pv["zeit"], y=df_pv["pv_kw"],
-            name=f"PV-Ertrag ({solar_kwp} kWp)",
-            fill="tozeroy", fillcolor="rgba(241,196,15,0.30)",
-            line=dict(color="#f1c40f", width=2),
-            hovertemplate="%{x|%a %H:%M}: %{y:.2f} kW<extra></extra>",
-            yaxis="y1",
-        ))
-        fig_pv.add_trace(go.Scatter(
-            x=df_fc["zeit"], y=df_fc["prognose"],
-            name="Erneuerbare % (Netz)",
-            line=dict(color="#2ecc71", width=2, dash="dot"),
-            hovertemplate="%{x|%a %H:%M}: %{y:.0f}%<extra></extra>",
-            yaxis="y2",
-        ))
-        fig_pv.add_vline(x=now.isoformat(), line_dash="solid", line_color="white", line_width=1)
-        fig_pv.update_layout(
-            yaxis=dict(title="PV-Leistung (kW)", side="left", rangemode="nonnegative"),
-            yaxis2=dict(title="Erneuerbare % (Netz)", side="right", overlaying="y",
-                        range=[0, 120], showgrid=False),
-            xaxis_title="",
-            legend=dict(orientation="h", y=-0.18),
-            margin=dict(t=10, b=10), height=300,
-        )
-        st.plotly_chart(fig_pv, use_container_width=True)
-        st.caption(
-            f"Strahlungsdaten: Open-Meteo · Standort: {stadtname} · "
-            f"Ausrichtung {solar_ausrichtung} · Neigung {solar_neigung}° · Systemwirkungsgrad 80%"
-        )
-
-        # Eigenverbrauchsampel (Heatmap Heute/Morgen)
-        st.markdown("**Eigenverbrauchsampel – Stundengenaue Empfehlung**")
-
-        pv_heute_h  = {row["zeit"].hour: row["pv_kw"] for _, row in df_pv[df_pv["datum"] == heute_str].iterrows()}
-        pv_morgen_h = {row["zeit"].hour: row["pv_kw"] for _, row in df_pv[df_pv["datum"] == morgen_str].iterrows()}
-
-        COLOR_SCORE = {
-            "⚡ Eigenverbrauch maximieren":      0.85,
-            "↗ Einspeisung — Netz ist grün":     0.65,
-            "🔋 Grüner Strom — Speicher laden":  0.40,
-            "~ Gemischter Mix":                   0.20,
-            "🚫 Fossiles Netz — Verbrauch reduzieren": 0.02,
-        }
-        TEXT_SHORT = {
-            "⚡ Eigenverbrauch maximieren":      "Eigen-\nverbrauch",
-            "↗ Einspeisung — Netz ist grün":     "Einspeisung",
-            "🔋 Grüner Strom — Speicher laden":  "Laden",
-            "~ Gemischter Mix":                   "Gemischt",
-            "🚫 Fossiles Netz — Verbrauch reduzieren": "Fossil",
-        }
-
-        z_ampel, text_ampel = [], []
-        for hm_dict, pv_dict in [(hm_heute, pv_heute_h), (hm_morgen, pv_morgen_h)]:
-            row_z, row_t = [], []
-            for h in range(24):
-                ren = hm_dict.get(h) or 50.0
-                pv  = pv_dict.get(h, 0.0)
-                et, _ = pv_empfehlung(pv, ren, False)
-                row_z.append(COLOR_SCORE.get(et, 0.2))
-                row_t.append(TEXT_SHORT.get(et, ""))
-            z_ampel.append(row_z)
-            text_ampel.append(row_t)
-
-        fig_ampel = go.Figure(go.Heatmap(
-            z=z_ampel, x=[f"{h}:00" for h in range(24)], y=y_labels,
-            text=text_ampel, texttemplate="%{text}",
-            colorscale=[
-                [0.00, "#7b241c"], [0.15, "#c0392b"],
-                [0.15, "#d4ac0d"], [0.35, "#d4ac0d"],
-                [0.35, "#3498db"], [0.55, "#3498db"],
-                [0.55, "#1abc9c"], [0.75, "#1abc9c"],
-                [0.75, "#27ae60"], [1.00, "#27ae60"],
-            ],
-            zmin=0, zmax=1,
-            showscale=False,
-            hovertemplate="%{y}<br>%{x}: %{text}<extra></extra>",
-        ))
-        fig_ampel.add_vline(x=f"{now.hour}:00", line_dash="dash", line_color="white", line_width=2)
-        fig_ampel.update_layout(
-            height=180, margin=dict(t=10, b=10, l=0, r=0),
-            xaxis=dict(side="top", tickfont=dict(size=10)),
-            yaxis=dict(tickfont=dict(size=11)),
-        )
-        st.plotly_chart(fig_ampel, use_container_width=True)
-
-        legende_html = " &nbsp;·&nbsp; ".join([
-            '<span style="color:#27ae60">■</span> Eigenverbrauch',
-            '<span style="color:#1abc9c">■</span> Einspeisung ok',
-            '<span style="color:#d4ac0d">■</span> Gemischt',
-            '<span style="color:#c0392b">■</span> Fossil',
-        ])
-        st.markdown(f'<div style="font-size:.8rem;color:#aaa">{legende_html}</div>', unsafe_allow_html=True)
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # ZONE 5 – DETAILS
