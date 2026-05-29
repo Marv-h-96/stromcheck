@@ -1,3 +1,4 @@
+import streamlit as st
 import requests
 import pandas as pd
 import numpy as np
@@ -5,6 +6,7 @@ from datetime import datetime
 import pytz
 
 
+@st.cache_data(ttl=3600, show_spinner=False)
 def get_wetter(tage_vergangenheit=7, tage_prognose=3, lat=51.2, lon=10.4):
     """Historische + Forecast-Wetterdaten von Open-Meteo in einem Aufruf."""
     params = {

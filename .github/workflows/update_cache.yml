@@ -1,0 +1,37 @@
+name: Strommix-Cache aktualisieren
+
+on:
+  schedule:
+    # Alle 2 Stunden (SMARD aktualisiert stündlich)
+    - cron: '15 */2 * * *'
+  workflow_dispatch:  # Manuell auslösbar im GitHub UI
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Python einrichten
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Abhängigkeiten installieren
+        run: pip install requests pandas pytz
+
+      - name: Strommix-Daten abrufen
+        run: python fetch_data.py
+
+      - name: Cache-Datei committen
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add cache/strommix_28d.json
+          git diff --staged --quiet || git commit -m "chore: Strommix-Cache aktualisiert [skip ci]"
+          git push
