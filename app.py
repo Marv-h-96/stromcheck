@@ -404,7 +404,117 @@ if _kommentar:
     </div>""", unsafe_allow_html=True)
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# ZONE 1.5 – AKTUELLER STROMMIX (DONUT)
+# ZONE 1.5 – GERÄTEPLANER
+# ═══════════════════════════════════════════════════════════════════════════════
+st.markdown("---")
+st.subheader("🏠 Geräteplaner – Wann ist der grünste Moment?")
+st.caption("Wähle ein Gerät und eine Deadline – die App findet das grünste Zeitfenster im 48h-Forecast.")
+
+GERAETE = {
+    "Waschmaschine":     {"dauer": 1.5, "icon": "🫧",  "kwh": 1.0},
+    "Spülmaschine":      {"dauer": 1.5, "icon": "🍽️", "kwh": 1.2},
+    "Trockner":          {"dauer": 2.0, "icon": "🌀",  "kwh": 2.5},
+    "E-Auto – 20 kWh":  {"dauer": 2.5, "icon": "🚗",  "kwh": 20.0},
+    "E-Auto – 50 kWh":  {"dauer": 6.0, "icon": "🚗",  "kwh": 50.0},
+    "Wärmepumpe (2 h)": {"dauer": 2.0, "icon": "🌡️", "kwh": 3.0},
+    "Geschirrspüler":    {"dauer": 1.5, "icon": "🍽️", "kwh": 1.0},
+}
+
+_heute_22  = now.replace(hour=22, minute=0, second=0, microsecond=0)
+_morgen_06 = (now + timedelta(days=1)).replace(hour=6,  minute=0, second=0, microsecond=0)
+_morgen_12 = (now + timedelta(days=1)).replace(hour=12, minute=0, second=0, microsecond=0)
+_morgen_22 = (now + timedelta(days=1)).replace(hour=22, minute=0, second=0, microsecond=0)
+_in_48h    = now + timedelta(hours=48)
+
+DEADLINES = {}
+if _heute_22 > now + timedelta(hours=2):
+    DEADLINES["Heute Abend (22:00)"] = _heute_22
+DEADLINES["Heute Nacht / morgen früh (06:00)"] = _morgen_06
+DEADLINES["Morgen Mittag (12:00)"]              = _morgen_12
+DEADLINES["Morgen Abend (22:00)"]               = _morgen_22
+DEADLINES["In 48 Stunden"]                      = _in_48h
+
+gp1, gp2, gp3 = st.columns([1.5, 1.5, 1])
+geraet_name    = gp1.selectbox("Gerät auswählen", list(GERAETE.keys()))
+deadline_label = gp2.selectbox("Fertig bis spätestens", list(DEADLINES.keys()))
+suchen = gp3.button("🔍 Berechnen", use_container_width=True, help="Findet das grünste Zeitfenster vor der Deadline")
+
+if suchen:
+    g = GERAETE[geraet_name]
+    ergebnis = bestes_geraete_fenster(df_fc, g["dauer"], DEADLINES[deadline_label], now)
+    st.session_state.geraet_plan = {
+        "geraet": geraet_name, "deadline": deadline_label,
+        "ergebnis": ergebnis, "aktuell": aktuell,
+    }
+
+if "geraet_plan" in st.session_state:
+    plan    = st.session_state.geraet_plan
+    ergebnis = plan["ergebnis"]
+
+    if ergebnis is None:
+        st.warning("Kein passendes Fenster vor dieser Deadline gefunden. Wähle eine spätere Deadline.")
+    else:
+        start, ende, avg_ren = ergebnis
+        g             = GERAETE[plan["geraet"]]
+        jetzt_ren     = plan["aktuell"]
+        verbesserung  = avg_ren - jetzt_ren
+        delta_sign    = "+" if verbesserung >= 0 else ""
+        farbe_delta   = "#4caf7d" if verbesserung >= 0 else "#e74c3c"
+
+        if avg_ren >= 70:   emo, bg = "🟢", "#1a4a1a"
+        elif avg_ren >= 40: emo, bg = "🟡", "#4a3d00"
+        else:               emo, bg = "🔴", "#4a1a1a"
+
+        st.markdown(f"""
+        <div style="padding:1.25rem 1.5rem;border-radius:.75rem;background:{bg};margin:.5rem 0">
+            <div style="font-size:.78rem;color:#aaa;margin-bottom:.6rem">
+                {g['icon']} <b style="color:#ddd">{plan['geraet']}</b>
+                &nbsp;·&nbsp; Laufzeit ca. {g['dauer']:.1f} h
+                &nbsp;·&nbsp; Verbrauch ca. {g['kwh']:.0f} kWh
+                &nbsp;·&nbsp; Deadline: {plan['deadline']}
+            </div>
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:1.5rem;flex-wrap:wrap">
+                <div>
+                    <div style="font-size:.7rem;color:#aaa;text-transform:uppercase;letter-spacing:.06em;margin-bottom:.2rem">
+                        Empfohlene Startzeit
+                    </div>
+                    <div style="font-size:1.9rem;font-weight:bold;line-height:1.1">
+                        {start.strftime('%H:%M')} Uhr
+                    </div>
+                    <div style="font-size:.9rem;color:#ccc;margin-top:.2rem">
+                        {start.strftime('%A, %d.%m.')} &nbsp;·&nbsp; fertig um {ende.strftime('%H:%M')} Uhr
+                    </div>
+                </div>
+                <div style="text-align:right">
+                    <div style="font-size:.7rem;color:#aaa;text-transform:uppercase;letter-spacing:.06em;margin-bottom:.2rem">
+                        Erneuerbare Energie
+                    </div>
+                    <div style="font-size:1.9rem;font-weight:bold;line-height:1.1">
+                        {emo} {avg_ren:.0f}%
+                    </div>
+                    <div style="font-size:.85rem;color:#ccc;margin-top:.2rem">
+                        Aktuell: {jetzt_ren:.0f}%
+                        &nbsp;→&nbsp;
+                        <span style="color:{farbe_delta};font-weight:bold">{delta_sign}{verbesserung:.0f}% grüner durch Warten</span>
+                    </div>
+                </div>
+            </div>
+        </div>""", unsafe_allow_html=True)
+
+        ki_text = _ki_geraet(
+            plan["geraet"], start.strftime("%H:%M"), ende.strftime("%H:%M"),
+            avg_ren, jetzt_ren, stadtname,
+        )
+        if ki_text:
+            st.markdown(f"""
+            <div style="padding:.75rem 1.25rem;border-radius:.6rem;background:#0e1a2e;
+                        border-left:3px solid #3498db;margin:.4rem 0 .5rem 0;
+                        font-size:.9rem;line-height:1.5;color:#d0d8e8">
+                🤖 {ki_text}
+            </div>""", unsafe_allow_html=True)
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ZONE 1.7 – AKTUELLER STROMMIX (DONUT)
 # ═══════════════════════════════════════════════════════════════════════════════
 st.subheader("🍩 Aktueller Strommix")
 fig_d = go.Figure(go.Pie(
@@ -490,106 +600,6 @@ fig_kal.update_layout(
 )
 st.plotly_chart(fig_kal, use_container_width=True)
 st.caption(f"Prognose · {modell_info}")
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# ZONE 2.5 – GERÄTEPLANER
-# ═══════════════════════════════════════════════════════════════════════════════
-st.markdown("---")
-st.subheader("🏠 Geräteplaner – Wann ist der grünste Moment?")
-
-GERAETE = {
-    "Waschmaschine":        {"dauer": 1.5, "icon": "🫧",  "kwh": 1.0},
-    "Spülmaschine":         {"dauer": 1.5, "icon": "🍽️", "kwh": 1.2},
-    "Trockner":             {"dauer": 2.0, "icon": "🌀",  "kwh": 2.5},
-    "E-Auto – 20 kWh":     {"dauer": 2.5, "icon": "🚗",  "kwh": 20.0},
-    "E-Auto – 50 kWh":     {"dauer": 6.0, "icon": "🚗",  "kwh": 50.0},
-    "Wärmepumpe (2 h)":    {"dauer": 2.0, "icon": "🌡️", "kwh": 3.0},
-    "Geschirrspüler":       {"dauer": 1.5, "icon": "🍽️", "kwh": 1.0},
-}
-
-# Deadline-Optionen (nur sinnvolle, die noch in der Zukunft liegen)
-_heute_22 = now.replace(hour=22, minute=0, second=0, microsecond=0)
-_morgen_06 = (now + timedelta(days=1)).replace(hour=6,  minute=0, second=0, microsecond=0)
-_morgen_12 = (now + timedelta(days=1)).replace(hour=12, minute=0, second=0, microsecond=0)
-_morgen_22 = (now + timedelta(days=1)).replace(hour=22, minute=0, second=0, microsecond=0)
-_in_48h    = now + timedelta(hours=48)
-
-DEADLINES = {}
-if _heute_22 > now + timedelta(hours=2):
-    DEADLINES["Heute Abend (22:00)"] = _heute_22
-DEADLINES["Heute Nacht / morgen früh (06:00)"] = _morgen_06
-DEADLINES["Morgen Mittag (12:00)"]              = _morgen_12
-DEADLINES["Morgen Abend (22:00)"]               = _morgen_22
-DEADLINES["In 48 Stunden"]                      = _in_48h
-
-gp1, gp2, gp3 = st.columns([1.5, 1.5, 1])
-geraet_name   = gp1.selectbox("Gerät", list(GERAETE.keys()), label_visibility="collapsed")
-deadline_label = gp2.selectbox("Fertig bis", list(DEADLINES.keys()), label_visibility="collapsed")
-suchen = gp3.button("🔍 Bestes Fenster", use_container_width=True)
-
-if suchen:
-    g = GERAETE[geraet_name]
-    ergebnis = bestes_geraete_fenster(df_fc, g["dauer"], DEADLINES[deadline_label], now)
-    st.session_state.geraet_plan = {
-        "geraet": geraet_name, "deadline": deadline_label,
-        "ergebnis": ergebnis, "aktuell": aktuell,
-    }
-
-if "geraet_plan" in st.session_state:
-    plan = st.session_state.geraet_plan
-    ergebnis = plan["ergebnis"]
-
-    if ergebnis is None:
-        st.warning("Kein passendes Fenster vor der gewählten Deadline gefunden. Wähle eine spätere Deadline.")
-    else:
-        start, ende, avg_ren = ergebnis
-        g = GERAETE[plan["geraet"]]
-        jetzt_ren = plan["aktuell"]
-        verbesserung = avg_ren - jetzt_ren
-
-        if avg_ren >= 70:   emo, bg = "🟢", "#1a4a1a"
-        elif avg_ren >= 40: emo, bg = "🟡", "#4a3d00"
-        else:               emo, bg = "🔴", "#4a1a1a"
-
-        # Ergebnis-Karte
-        rp1, rp2 = st.columns([2, 1])
-        with rp1:
-            st.markdown(f"""
-            <div style="padding:1.25rem 1.5rem;border-radius:.75rem;background:{bg};margin:.5rem 0">
-                <div style="font-size:.8rem;color:#bbb">{g['icon']} {plan['geraet']} · Fertig bis: {plan['deadline']}</div>
-                <div style="font-size:1.8rem;font-weight:bold;margin:.25rem 0">
-                    {start.strftime('%H:%M')} – {ende.strftime('%H:%M')} Uhr
-                    <span style="font-size:.9rem;font-weight:normal;color:#bbb">
-                        {start.strftime('%a %d.%m.')}
-                    </span>
-                </div>
-                <div style="font-size:1rem">{emo} Ø {avg_ren:.0f}% Erneuerbar</div>
-            </div>""", unsafe_allow_html=True)
-
-        with rp2:
-            st.metric("Jetzt", f"{jetzt_ren:.0f}%", label_visibility="visible")
-            delta_sign = "+" if verbesserung >= 0 else ""
-            farbe_delta = "#27ae60" if verbesserung >= 0 else "#e74c3c"
-            st.markdown(
-                f'<div style="font-size:.85rem;color:{farbe_delta};font-weight:bold">'
-                f'{delta_sign}{verbesserung:.0f}% durch Warten</div>',
-                unsafe_allow_html=True
-            )
-            st.caption(f"~{g['kwh']:.0f} kWh Verbrauch")
-
-        # KI-Erklärung
-        ki_text = _ki_geraet(
-            plan["geraet"],
-            start.strftime("%H:%M"), ende.strftime("%H:%M"),
-            avg_ren, jetzt_ren, stadtname,
-        )
-        if ki_text:
-            st.markdown(f"""
-            <div style="padding:.75rem 1.25rem;border-radius:.6rem;background:#0e1a2e;
-                        border-left:3px solid #3498db;margin:.5rem 0;
-                        font-size:.9rem;line-height:1.5;color:#d0d8e8">
-                🤖 {ki_text}
-            </div>""", unsafe_allow_html=True)
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # ZONE 3 – WETTERPROGNOSE
