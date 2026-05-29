@@ -26,10 +26,11 @@ def _geocode(query: str):
         r.raise_for_status()
         out = []
         for res in r.json().get("results", []):
+            if res.get("country_code") != "DE":
+                continue
             label = res["name"]
             if res.get("admin1"):
                 label += f", {res['admin1']}"
-            label += f" ({res['country']})"
             out.append({"label": label, "lat": res["latitude"], "lon": res["longitude"]})
         return out
     except Exception:
@@ -179,7 +180,7 @@ with st.sidebar:
         treffer = _geocode(ort_eingabe.strip())
         st.session_state.geo_treffer = treffer
         if not treffer:
-            st.warning("Kein Ort gefunden.")
+            st.warning("Kein Ort in Deutschland gefunden.")
 
     if st.session_state.get("geo_treffer"):
         treffer  = st.session_state.geo_treffer
