@@ -215,7 +215,8 @@ now    = datetime.now(berlin)
 MODELL_TAGE = 28
 
 with st.spinner("Berechne Wetterprognose …"):
-    df_train = load_from_cache(MODELL_TAGE) or df
+    _cached_train = load_from_cache(MODELL_TAGE)
+    df_train = _cached_train if _cached_train is not None else df
     df_fc_raw, r2, fehler = wetter_prognose(df_train, MODELL_TAGE, lat=stadt_lat, lon=stadt_lon)
 
 if df_fc_raw is not None:
