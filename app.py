@@ -125,24 +125,28 @@ def _ki_tageskommentar(
             f"im Zielbereich – Glückwunsch!" if co2 <= 100
             else f"{co2/100:.1f}× über dem Klimaziel 2030 (Ø 100 g/kWh Jahresdurchschnitt)"
         )
+        # Konkrete Gerätevergleiche (greifbarer als "pro kWh")
+        co2_waschmaschine = round(co2 * 1.0)    # ~1 kWh
+        co2_spuelmaschine = round(co2 * 1.2)    # ~1.2 kWh
+        co2_eauto_100km   = round(co2 * 20 / 1000, 2)  # ~20 kWh / 100 km → kg
+        co2_bier_wm       = round(co2_waschmaschine / 500, 2)  # Bierflaschen (500g CO₂/0,5l)
         prompt = (
             f"Du bist ein freundlicher, leicht humorvoller Energie-Assistent für eine deutsche Strommix-App. "
             f"Der Nutzer ist in {standort}. "
-            f"Aktuelle Lage in Deutschland: {aktuell:.0f}% Erneuerbare, {co2:.0f} g CO₂/kWh – "
-            f"das ist {klimaziel_status}. "
-            f"CO₂-Vergleiche zur Auswahl (nur einen einbauen, kreativ variieren): "
-            f"≈ {co2/200:.1f} km Autofahrt, "
-            f"≈ {co2/500:.1f} Flaschen Bier brauen (0,5 l), "
-            f"≈ {co2/80:.0f} Minuten Videostreaming, "
-            f"≈ {co2/2500*100:.1f}% eines Burgers. "
-            f"Stärkste Einspeisungsquellen: {top_str}. "
+            f"Aktuelle Lage: {aktuell:.0f}% Erneuerbare, {co2:.0f} g CO₂/kWh – {klimaziel_status}. "
+            f"Konkrete Gerätevergleiche für den aktuellen Strommix (verwende NUR diese, KEIN 'pro kWh'): "
+            f"Eine Waschmaschine (1 kWh) erzeugt gerade {co2_waschmaschine}g CO₂ ≈ {co2_bier_wm:.1f} Bierflaschen. "
+            f"Eine Spülmaschine ({co2_spuelmaschine}g). "
+            f"100 km E-Auto ({co2_eauto_100km:.2f} kg CO₂). "
+            f"Stärkste Quellen: {top_str}. "
             f"{wetter_ctx}"
             f"{solar_ctx}"
-            f"Bestes Zeitfenster für stromintensive Geräte – heute: {fenster_h}, morgen: {fenster_m}. "
+            f"Bestes Zeitfenster – heute: {fenster_h}, morgen: {fenster_m}. "
             f"Schreibe 2–3 Sätze auf Deutsch direkt an den Nutzer in {standort}. "
-            f"Beziehe das lokale Wetter konkret ein. Baue einen CO₂-Vergleich mit Alltagshumor ein. "
-            f"Erwähne das Klimaziel kurz, gerne mit einem Augenzwinkern wenn es verfehlt wird. "
-            f"Gib einen alltagsnahen Tipp. Kein Markdown, kein Fettdruck."
+            f"Beziehe das lokale Wetter konkret ein. "
+            f"Verwende einen der Gerätevergleiche mit Alltagshumor – Bier, E-Auto oder Spülmaschine. "
+            f"Das Klimaziel kurz erwähnen, gerne mit Augenzwinkern wenn es verfehlt wird. "
+            f"Alltagsnaher Tipp am Ende. Kein Markdown, kein Fettdruck."
         )
         response = client.models.generate_content(model="gemini-3.1-flash-lite", contents=prompt)
         return response.text.strip()
@@ -669,89 +673,6 @@ st.plotly_chart(fig_kal, use_container_width=True)
 st.caption(f"Prognose · {modell_info}")
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# ZONE 2.8 – CO2-TAGESZÄHLER
-# ═══════════════════════════════════════════════════════════════════════════════
-st.markdown("---")
-st.subheader("🌍 CO₂-Tageszähler Deutschland")
-st.caption("Wie viel CO₂ hat der deutsche Stromsektor heute ausgestoßen – und wann wurde das Klimabudget überschritten?")
-
-if len(_df_tag) >= 2:
-    _df_plot = _df_tag.reset_index()
-    _zeiten   = _df_plot["zeit"]
-    _kumuliert = _df_plot["_kumuliert"].values
-
-    _ueber_text = (
-        f"Tagesbudget um {_co2_breach_zeit.strftime('%H:%M')} Uhr überschritten"
-        if _co2_breach_zeit else "Tagesbudget heute noch eingehalten ✅"
-    )
-    _pct = _co2_heute_kt / _budget_heute_kt * 100 if _budget_heute_kt > 0 else 0
-
-    cz1, cz2, cz3 = st.columns(3)
-    cz1.metric(
-        "Tatsächliche Emissionen heute",
-        f"{_co2_heute_kt:.0f} kt CO₂",
-        help="Kumulierte CO₂-Emissionen des deutschen Stromsektors seit Mitternacht (Kilotonnen)",
-    )
-    cz2.metric(
-        "Erlaubtes Tagesbudget (Ziel 2030)",
-        f"{_budget_heute_kt:.0f} kt CO₂",
-        help="Bei Ø 100 g CO₂/kWh (Klimaziel 2030) wäre dies das maximale Tagesbudget bei heutiger Stromlast",
-    )
-    cz3.metric(
-        "Budget ausgeschöpft",
-        f"{_pct:.0f}%",
-        delta=f"+{_pct - 100:.0f}% über Ziel" if _pct > 100 else None,
-        delta_color="inverse",
-    )
-    st.caption(f"📍 {_ueber_text}")
-
-    _gruen = np.minimum(_kumuliert, _budget_heute_kt)
-    fig_co2_tag = go.Figure()
-    fig_co2_tag.add_trace(go.Scatter(
-        x=_zeiten, y=_gruen, name="Innerhalb Tagesbudget",
-        fill="tozeroy", fillcolor="rgba(39,174,96,0.35)",
-        line=dict(color="#27ae60", width=1.5),
-        hovertemplate="%{x|%H:%M}: %{y:.1f} kt CO₂<extra></extra>",
-    ))
-    fig_co2_tag.add_trace(go.Scatter(
-        x=_zeiten, y=_kumuliert, name="Über Tagesbudget",
-        fill="tonexty", fillcolor="rgba(192,57,43,0.35)",
-        line=dict(color="#c0392b", width=1.5),
-        hovertemplate="%{x|%H:%M}: %{y:.1f} kt CO₂<extra></extra>",
-    ))
-    fig_co2_tag.add_hline(
-        y=_budget_heute_kt, line_dash="dash", line_color="#27ae60", line_width=2,
-        annotation_text=f"Tagesbudget Klimaziel 2030 · {_budget_heute_kt:.0f} kt",
-        annotation_position="top left",
-    )
-    if _co2_breach_zeit is not None:
-        fig_co2_tag.add_vline(
-            x=_co2_breach_zeit.strftime("%Y-%m-%dT%H:%M:%S"),
-            line_dash="dot", line_color="#e74c3c", line_width=1.5,
-        )
-        fig_co2_tag.add_annotation(
-            x=_co2_breach_zeit.strftime("%Y-%m-%dT%H:%M:%S"),
-            y=1, yref="paper",
-            text=f"Limit seit {_co2_breach_zeit.strftime('%H:%M')} Uhr",
-            showarrow=False, yanchor="bottom",
-            font=dict(color="#e74c3c", size=11),
-        )
-    fig_co2_tag.update_layout(
-        yaxis_title="Kumulierte CO₂-Emissionen heute (kt)",
-        xaxis_title="",
-        legend=dict(orientation="h", y=-0.18),
-        margin=dict(t=10, b=10), height=280,
-    )
-    st.plotly_chart(fig_co2_tag, use_container_width=True)
-    st.caption(
-        "CO₂-Emissionen des deutschen Stromsektors · "
-        "Tagesbudget = heutige Stromlast × 100 g CO₂/kWh (Klimaziel 2030) · "
-        "Quelle: SMARD + IPCC AR6"
-    )
-else:
-    st.info("Für heute noch keine ausreichenden Daten vorhanden.")
-
-# ═══════════════════════════════════════════════════════════════════════════════
 # ZONE 3 – WETTERPROGNOSE
 # ═══════════════════════════════════════════════════════════════════════════════
 st.markdown("---")
@@ -1004,6 +925,61 @@ with st.expander("📊 Details & Hintergrund", expanded=False):
     st.plotly_chart(fig_co2, use_container_width=True)
     st.caption("Gewichteter Durchschnitt Lebenszyklusemissionen nach IPCC AR6 · "
                "Braunkohle 820 · Erdgas 490 · Solar 45 · Wind ~11 g CO2/kWh")
+
+    st.markdown("---")
+    st.subheader("🌍 CO₂-Tageszähler Deutschland")
+    st.caption("Wie viel CO₂ hat der deutsche Stromsektor heute ausgestoßen – und wann wurde das Klimabudget überschritten?")
+
+    if len(_df_tag) >= 2:
+        _df_plot  = _df_tag.reset_index()
+        _zeiten   = _df_plot["zeit"]
+        _kumuliert = _df_plot["_kumuliert"].values
+        _pct = _co2_heute_kt / _budget_heute_kt * 100 if _budget_heute_kt > 0 else 0
+        _ueber_text = (
+            f"Tagesbudget um {_co2_breach_zeit.strftime('%H:%M')} Uhr überschritten"
+            if _co2_breach_zeit else "Tagesbudget heute noch eingehalten ✅"
+        )
+        cz1, cz2, cz3 = st.columns(3)
+        cz1.metric("Tatsächliche Emissionen heute", f"{_co2_heute_kt:.0f} kt CO₂",
+                   help="Kumulierte CO₂-Emissionen seit Mitternacht (Kilotonnen)")
+        cz2.metric("Erlaubtes Tagesbudget (Ziel 2030)", f"{_budget_heute_kt:.0f} kt CO₂",
+                   help="Heutige Stromlast × 100 g CO₂/kWh (Klimaziel 2030)")
+        cz3.metric("Budget ausgeschöpft", f"{_pct:.0f}%",
+                   delta=f"+{_pct - 100:.0f}% über Ziel" if _pct > 100 else None,
+                   delta_color="inverse")
+        st.caption(f"📍 {_ueber_text}")
+        _gruen = np.minimum(_kumuliert, _budget_heute_kt)
+        fig_co2_tag = go.Figure()
+        fig_co2_tag.add_trace(go.Scatter(
+            x=_zeiten, y=_gruen, name="Innerhalb Tagesbudget",
+            fill="tozeroy", fillcolor="rgba(39,174,96,0.35)",
+            line=dict(color="#27ae60", width=1.5),
+            hovertemplate="%{x|%H:%M}: %{y:.1f} kt CO₂<extra></extra>",
+        ))
+        fig_co2_tag.add_trace(go.Scatter(
+            x=_zeiten, y=_kumuliert, name="Über Tagesbudget",
+            fill="tonexty", fillcolor="rgba(192,57,43,0.35)",
+            line=dict(color="#c0392b", width=1.5),
+            hovertemplate="%{x|%H:%M}: %{y:.1f} kt CO₂<extra></extra>",
+        ))
+        fig_co2_tag.add_hline(y=_budget_heute_kt, line_dash="dash", line_color="#27ae60",
+                              annotation_text=f"Tagesbudget 2030 · {_budget_heute_kt:.0f} kt",
+                              annotation_position="top left")
+        if _co2_breach_zeit is not None:
+            fig_co2_tag.add_vline(x=_co2_breach_zeit.strftime("%Y-%m-%dT%H:%M:%S"),
+                                  line_dash="dot", line_color="#e74c3c", line_width=1.5)
+            fig_co2_tag.add_annotation(x=_co2_breach_zeit.strftime("%Y-%m-%dT%H:%M:%S"),
+                                       y=1, yref="paper",
+                                       text=f"Limit seit {_co2_breach_zeit.strftime('%H:%M')} Uhr",
+                                       showarrow=False, yanchor="bottom",
+                                       font=dict(color="#e74c3c", size=11))
+        fig_co2_tag.update_layout(yaxis_title="Kumulierte CO₂-Emissionen heute (kt)",
+                                  xaxis_title="", legend=dict(orientation="h", y=-0.18),
+                                  margin=dict(t=10, b=10), height=280)
+        st.plotly_chart(fig_co2_tag, use_container_width=True)
+        st.caption("Tagesbudget = heutige Stromlast × 100 g CO₂/kWh (Klimaziel 2030) · Quelle: SMARD + IPCC AR6")
+    else:
+        st.info("Für heute noch keine ausreichenden Daten vorhanden.")
 
     st.markdown("---")
     st.subheader("📋 Rohdaten")
