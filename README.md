@@ -2,7 +2,7 @@
 
 Echtzeit-Dashboard für den deutschen Strommix – mit KI-Kommentar, Wetterprognose, Geräteplaner und Solar-Analyse.
 
-**Live-App:** [stromcheck.streamlit.app](https://wann-waschmaschine-anstellen.streamlit.app/)
+**Live-App:** [wann-waschmaschine-anstellen.streamlit.app](https://wann-waschmaschine-anstellen.streamlit.app/)
 
 ---
 
