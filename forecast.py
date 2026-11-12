@@ -13,7 +13,7 @@ def get_wetter(tage_vergangenheit=7, tage_prognose=3, lat=51.2, lon=10.4):
         "latitude": lat,
         "longitude": lon,
         "hourly": "shortwave_radiation,wind_speed_100m",
-        "timezone": "Europe/Berlin",
+        "timezone": "UTC",  # Berlin-Lokalzeit lässt die doppelte Stunde bei Zeitumstellung aus → nicht eindeutig lokalisierbar
         "past_days": min(tage_vergangenheit, 92),
         "forecast_days": tage_prognose,
     }
@@ -24,7 +24,7 @@ def get_wetter(tage_vergangenheit=7, tage_prognose=3, lat=51.2, lon=10.4):
         {"strahlung": h["shortwave_radiation"], "wind_100m": h["wind_speed_100m"]},
         index=pd.to_datetime(h["time"]),
     )
-    df.index = df.index.tz_localize("Europe/Berlin", ambiguous="infer", nonexistent="shift_forward")
+    df.index = df.index.tz_localize("UTC").tz_convert("Europe/Berlin")
     df.index.name = "zeit"
     return df.dropna()
 
